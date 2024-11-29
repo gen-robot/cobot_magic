@@ -4,6 +4,9 @@ import numpy as np
 import cv2
 import h5py
 import argparse
+import matplotlib
+matplotlib.use('Agg')
+
 import matplotlib.pyplot as plt
 
 DT = 0.02
@@ -60,8 +63,6 @@ def main(args):
     print('hdf5 loaded!!')
     
     save_videos(image_dict, action, DT,  video_path=os.path.join(dataset_dir, dataset_name + '_video.mp4'))
-   
-
 
     visualize_joints(qpos, action, plot_path=os.path.join(dataset_dir, dataset_name + '_qpos.png'))
     visualize_base(base_action, plot_path=os.path.join(dataset_dir, dataset_name + '_base_action.png'))
@@ -79,7 +80,7 @@ def save_videos(video, actions, dt, video_path=None):
     for t in range(n_frames):
         image = all_cam_videos[t]
         image = image[:, :, [2, 1, 0]]  # swap B and R channel
-        cv2.imshow("images",image)
+        # cv2.imshow("images",image)
         cv2.waitKey(30)
         print("episode_id: ", t, "left: ", np.round(actions[t][:7], 3), "right: ", np.round(actions[t][7:], 3), "\n")
         out.write(image)

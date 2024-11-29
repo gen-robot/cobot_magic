@@ -5,6 +5,10 @@ import cv2
 import h5py
 import argparse
 import rospy
+import time
+from functools import partial
+
+import matplotlib.pyplot as plt
 
 from cv_bridge import CvBridge
 from std_msgs.msg import Header
@@ -13,15 +17,15 @@ from geometry_msgs.msg import Twist
 
 import sys
 sys.path.append("./")
-def load_hdf5(dataset_dir, dataset_name):
-    dataset_path = os.path.join(dataset_dir, dataset_name + '.hdf5')
+def load_hdf5(hdf5_path):
+    dataset_path = os.path.join(hdf5_path)
     if not os.path.isfile(dataset_path):
         print(f'Dataset does not exist at \n{dataset_path}\n')
         exit()
 
     with h5py.File(dataset_path, 'r') as root:
         is_sim = root.attrs['sim']
-        compressed = root.attrs.get('compress', False)
+        compressed = root.attrs.get('compress', True)
         qpos = root['/observations/qpos'][()]
         qvel = root['/observations/qvel'][()]
         if 'effort' in root.keys():
@@ -35,8 +39,8 @@ def load_hdf5(dataset_dir, dataset_name):
         for cam_name in root[f'/observations/images/'].keys():
             image_dict[cam_name] = root[f'/observations/images/{cam_name}'][()]
         
-        if compressed:
-            compress_len = root['/compress_len'][()]
+        # if compressed:
+            # compress_len = root['/compress_len'][()]
 
     if compressed:
         for cam_id, cam_name in enumerate(image_dict.keys()):
@@ -44,22 +48,23 @@ def load_hdf5(dataset_dir, dataset_name):
             padded_compressed_image_list = image_dict[cam_name]
             image_list = []
             for frame_id, padded_compressed_image in enumerate(padded_compressed_image_list): # [:1000] to save memory
-                image_len = int(compress_len[cam_id, frame_id])
+                # image_len = int(compress_len[cam_id, frame_id])
                 
                 compressed_image = padded_compressed_image
-                image = cv2.imdecode(compressed_image, 1)
+                image = cv2.imdecode(np.frombuffer(compressed_image, np.uint8), cv2.IMREAD_COLOR)
                 image_list.append(image)
             image_dict[cam_name] = image_list
 
+        # import pdb; pdb.set_trace()
+
     return qpos, qvel, effort, action, base_action, image_dict
+
+def print_msg(msg, name):
+    print(name, msg.position)
 
 def main(args):
     rospy.init_node("replay_node")
-    bridge = CvBridge()
-    img_left_publisher = rospy.Publisher(args.img_left_topic, Image, queue_size=10)
-    img_right_publisher = rospy.Publisher(args.img_right_topic, Image, queue_size=10)
-    img_front_publisher = rospy.Publisher(args.img_front_topic, Image, queue_size=10)
-    
+
     puppet_arm_left_publisher = rospy.Publisher(args.puppet_arm_left_topic, JointState, queue_size=10)
     puppet_arm_right_publisher = rospy.Publisher(args.puppet_arm_right_topic, JointState, queue_size=10)
     
@@ -69,13 +74,13 @@ def main(args):
     robot_base_publisher = rospy.Publisher(args.robot_base_topic, Twist, queue_size=10)
 
 
-    dataset_dir = args.dataset_dir
-    episode_idx = args.episode_idx
-    task_name   = args.task_name
-    dataset_name = f'episode_{episode_idx}'
-
     origin_left = [-0.0057,-0.031, -0.0122, -0.032, 0.0099, 0.0179, 0.2279]  
     origin_right = [ 0.0616, 0.0021, 0.0475, -0.1013, 0.1097, 0.0872, 0.2279]
+
+    left0 = [-0.00133514404296875, 0.00209808349609375, 0.01583099365234375, -0.032616615295410156, -0.00286102294921875, 0.00095367431640625, 0.0]
+    right0 = [-0.00133514404296875, 0.00438690185546875, 0.034523963928222656, -0.053597450256347656, -0.00476837158203125, -0.00209808349609375, 3.557830810546875]
+    left1 = [-0.00133514404296875, 0.00209808349609375, 0.01583099365234375, -0.032616615295410156, -0.00286102294921875, 0.00095367431640625, -0.3393220901489258]
+    right1 = [-0.00133514404296875, 0.00247955322265625, 0.01583099365234375, -0.032616615295410156, -0.00286102294921875, 0.00095367431640625, -0.3397035598754883]
 
     
     joint_state_msg = JointState()
@@ -84,83 +89,53 @@ def main(args):
     twist_msg = Twist()
 
     rate = rospy.Rate(args.frame_rate)
-    
-    qposs, qvels, efforts, actions, base_actions, image_dicts = load_hdf5(os.path.join(dataset_dir, task_name), dataset_name)
-    
-    
-    if args.only_pub_master:
-        last_action = [-0.0057,-0.031, -0.0122, -0.032, 0.0099, 0.0179, 0.2279, 0.0616, 0.0021, 0.0475, -0.1013, 0.1097, 0.0872, 0.2279]
-        rate = rospy.Rate(100)
-        for action in actions:
-            if(rospy.is_shutdown()):
-                    break
-            
-            new_actions = np.linspace(last_action, action, 20) # 插值
-            last_action = action
-            for act in new_actions:
-                print(np.round(act[:7], 4))
-                cur_timestamp = rospy.Time.now()  # 设置时间戳
-                joint_state_msg.header.stamp = cur_timestamp 
-                
-                joint_state_msg.position = act[:7]
-                master_arm_left_publisher.publish(joint_state_msg)
 
-                joint_state_msg.position = act[7:]
-                master_arm_right_publisher.publish(joint_state_msg)   
-
-                if(rospy.is_shutdown()):
-                    break
-                rate.sleep() 
+    # rospy.Subscriber(args.puppet_arm_left_topic, JointState, partial(print_msg, name="left:"), queue_size=1000, tcp_nodelay=True)
+    # rospy.Subscriber(args.puppet_arm_right_topic, JointState, partial(print_msg, name="right:"), queue_size=1000, tcp_nodelay=True)
     
-    else:
-        i = 0
-        while(not rospy.is_shutdown() and i < len(actions)):
-            print("left: ", np.round(qposs[i][:7], 4), " right: ", np.round(qposs[i][7:], 4))
-            
-            cam_names = [k for k in image_dicts.keys()]
-            image0 = image_dicts[cam_names[0]][i] 
-            image0 = image0[:, :, [2, 1, 0]]  # swap B and R channel
+    # qposs, qvels, efforts, actions, base_actions, image_dicts = load_hdf5(args.hdf5_path)
+
+    # fig = plt.figure(figsize=(70, 20))
+    
+    # for i in range(actions.shape[-1]):
+    #    plt.subplot(2, 7, i+1)
+    #     plt.plot(range(actions.shape[0]), actions[:, i])
+    #plt.savefig("tst.png")
+    #plt.tight_layout()
+    #exit()
+
+
+    last_action = [-0.0057,-0.031, -0.0122, -0.032, 0.0099, 0.0179, 0.2279, 0.0616, 0.0021, 0.0475, -0.1013, 0.1097, 0.0872, 0.2279]
+    rate = rospy.Rate(100)
+    # for action in actions:
+    for i in range(100):
+        if(rospy.is_shutdown()):
+            print("BBBBBB")
+            break
         
-            image1 = image_dicts[cam_names[1]][i] 
-            image1 = image1[:, :, [2, 1, 0]]  # swap B and R channel
-            
-            image2 = image_dicts[cam_names[2]][i] 
-            image2 = image2[:, :, [2, 1, 0]]  # swap B and R channel
+        # new_actions = np.linspace(last_action, last_action, 20) # 插值
+        # # last_action = last_action
+        # for act in new_actions:
+        #     # print(np.round(act[:7], 4))
+        cur_timestamp = rospy.Time.now()  # 设置时间戳
+        joint_state_msg.header.stamp = cur_timestamp 
+        
+        joint_state_msg.position = origin_left #last_action[:7]
+        master_arm_left_publisher.publish(joint_state_msg)
 
-            cur_timestamp = rospy.Time.now()  # 设置时间戳
-            
-            joint_state_msg.header.stamp = cur_timestamp 
-            joint_state_msg.position = actions[i][:7]
-            master_arm_left_publisher.publish(joint_state_msg)
+        joint_state_msg.position = origin_left #last_action[7:]
+        master_arm_right_publisher.publish(joint_state_msg)   
 
-            joint_state_msg.position = actions[i][7:]
-            master_arm_right_publisher.publish(joint_state_msg)
-
-            joint_state_msg.position = qposs[i][:7]
-            puppet_arm_left_publisher.publish(joint_state_msg)
-
-            joint_state_msg.position = qposs[i][7:]
-            puppet_arm_right_publisher.publish(joint_state_msg)
-
-            img_front_publisher.publish(bridge.cv2_to_imgmsg(image0, "bgr8"))
-            img_left_publisher.publish(bridge.cv2_to_imgmsg(image1, "bgr8"))
-            img_right_publisher.publish(bridge.cv2_to_imgmsg(image2, "bgr8"))
-    
-            
-            twist_msg.linear.x = base_actions[i][0]
-            twist_msg.angular.z = base_actions[i][1]
-            robot_base_publisher.publish(twist_msg)
-
-            i += 1
-            rate.sleep() 
-            
+        if(rospy.is_shutdown()):
+            print("CCCCCCC")
+            break
+        rate.sleep() 
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset_dir', action='store', type=str, help='Dataset dir.', required=True)
-    parser.add_argument('--task_name', action='store', type=str, help='Task name.',
-                        default="aloha_mobile_dummy", required=False)
+    parser.add_argument('--hdf5_path', action='store', type=str, help='Dataset_dir.',
+                        default=None, required=False)
 
     parser.add_argument('--episode_idx', action='store', type=int, help='Episode index.',default=0, required=False)
     
