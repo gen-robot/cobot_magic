@@ -54,12 +54,18 @@ def save_data(args, timesteps, actions, dataset_path):
         data_dict['/action'].append(action)
         data_dict['/base_action'].append(ts.observation['base_vel'])
 
+        def compress_img(img):
+            encoded_image = cv2.imencode('.jpeg', img)[1]
+            return np.frombuffer(encoded_image.tobytes(), dtype='uint8')
+
         # 相机数据
         # data_dict['/base_action_t265'].append(ts.observation['base_vel_t265'])
         for cam_name in args.camera_names:
-            data_dict[f'/observations/images/{cam_name}'].append(ts.observation['images'][cam_name])
+            data_dict[f'/observations/images/{cam_name}'].append(
+                compress_img(ts.observation['images'][cam_name]))
             if args.use_depth_image:
-                data_dict[f'/observations/images_depth/{cam_name}'].append(ts.observation['images_depth'][cam_name])
+                data_dict[f'/observations/images_depth/{cam_name}'].append(
+                    compress_img(ts.observation['images_depth'][cam_name]))
 
     t0 = time.time()
     with h5py.File(dataset_path + '.hdf5', 'w', rdcc_nbytes=1024**2*2) as root:
@@ -75,11 +81,13 @@ def save_data(args, timesteps, actions, dataset_path):
         obs = root.create_group('observations')
         image = obs.create_group('images')
         for cam_name in args.camera_names:
-            _ = image.create_dataset(cam_name, (data_size,))
+            _ = image.create_dataset(
+                cam_name, (data_size,), dtype=h5py.vlen_dtype(np.dtype('uint8')))
         if args.use_depth_image:
             image_depth = obs.create_group('images_depth')
             for cam_name in args.camera_names:
-                _ = image_depth.create_dataset(cam_name, (data_size,))
+                _ = image_depth.create_dataset(
+                    cam_name, (data_size,), dtype=h5py.vlen_dtype(np.dtype('uint8')))
 
         _ = obs.create_dataset('qpos', (data_size, 14))
         _ = obs.create_dataset('qvel', (data_size, 14))
@@ -89,11 +97,7 @@ def save_data(args, timesteps, actions, dataset_path):
 
         # data_dict write into h5py.File
         for name, array in data_dict.items():  
-            if 'images' in name:
-                compressed_img = cv2.imencode('.jpeg', array)[1].tobytes()
-                root[name][...] = compressed_img
-            else:
-                root[name][...] = array
+            root[name][...] = array
     print(f'\033[32m\nSaving: {time.time() - t0:.1f} secs. %s \033[0m\n'%dataset_path)
 
 
