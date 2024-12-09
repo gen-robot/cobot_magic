@@ -1,5 +1,11 @@
 #!/bin/bash
 
+cd Piper_ros_private-ros-noetic && bash can_config.sh
+
+source devel/setup.bash
+
+cd ..
+
 # Start a new tmux session named 'collect_data'
 tmux new-session -d -s collect_data
 
@@ -15,7 +21,7 @@ tmux send-keys -t collect_data:0.0 "roscore" C-m
 
 sleep 1
 
-tmux send-keys -t collect_data:0.1 "cd Piper_ros_private-ros-noetic && bash can_config.sh && source devel/setup.bash" C-m
+# tmux send-keys -t collect_data:0.1 "cd Piper_ros_private-ros-noetic && bash can_config.sh && source devel/setup.bash" C-m
 tmux send-keys -t collect_data:0.1 "roslaunch piper start_ms_piper.launch mode:=0 auto_enable:=false" C-m
 
 tmux send-keys -t collect_data:0.2 "roslaunch astra_camera multi_camera.launch" C-m
