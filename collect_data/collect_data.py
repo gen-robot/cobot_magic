@@ -5,6 +5,7 @@ import numpy as np
 import h5py
 import argparse
 import dm_env
+import signal
 
 import collections
 from collections import deque
@@ -299,9 +300,9 @@ class RosOperator:
         rospy.Subscriber(self.args.puppet_arm_right_topic, JointState, self.puppet_arm_right_callback, queue_size=1000, tcp_nodelay=True)
         rospy.Subscriber(self.args.robot_base_topic, Odometry, self.robot_base_callback, queue_size=1000, tcp_nodelay=True)
 
-    def process(self):
-        timesteps = []
-        actions = []
+    def process(self, timesteps, actions):
+        # timesteps = []
+        # actions = []
         # 图像数据
         image = np.random.randint(0, 255, size=(480, 640, 3), dtype=np.uint8)
         image_dict = dict()
@@ -443,16 +444,22 @@ def get_arguments():
 def main():
     args = get_arguments()
     ros_operator = RosOperator(args)
-    timesteps, actions = ros_operator.process()
     dataset_dir = os.path.join(args.dataset_dir, args.task_name)
+    if not os.path.exists(dataset_dir):
+        os.makedirs(dataset_dir)
+    dataset_path = os.path.join(dataset_dir, "episode_" + str(args.episode_idx))
     
+    timesteps, actions = [], []
+    def signal_handler(sig, frame):
+        save_data(args, timesteps, actions, dataset_path)
+        exit(-1)
+    signal.signal(signal.SIGINT, signal_handler)
+    timesteps, actions = ros_operator.process(timesteps, actions)
+
     if(len(actions) < args.max_timesteps):
         print("\033[31m\nSave failure, please record %s timesteps of data.\033[0m\n" %args.max_timesteps)
         exit(-1)
 
-    if not os.path.exists(dataset_dir):
-        os.makedirs(dataset_dir)
-    dataset_path = os.path.join(dataset_dir, "episode_" + str(args.episode_idx))
     save_data(args, timesteps, actions, dataset_path)
 
 

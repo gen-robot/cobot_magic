@@ -35,8 +35,8 @@ def load_hdf5(dataset_dir, dataset_name):
         image_dict = dict()
         for cam_name in root[f'/observations/images/'].keys():
             image_dict[cam_name] = root[f'/observations/images/{cam_name}'][()]
-        if compressed:
-            compress_len = root['/compress_len'][()]
+        # if compressed:
+        #     compress_len = root['/compress_len'][()]
 
     if compressed:
         for cam_id, cam_name in enumerate(image_dict.keys()):
@@ -44,9 +44,12 @@ def load_hdf5(dataset_dir, dataset_name):
             padded_compressed_image_list = image_dict[cam_name]
             image_list = []
             for frame_id, padded_compressed_image in enumerate(padded_compressed_image_list): # [:1000] to save memory
-                image_len = int(compress_len[cam_id, frame_id])
+                # image_len = int(compress_len[cam_id, frame_id])
+                # compressed_image = padded_compressed_image
+                # image = cv2.imdecode(compressed_image, 1)
+                # image_list.append(image)
                 compressed_image = padded_compressed_image
-                image = cv2.imdecode(compressed_image, 1)
+                image = cv2.imdecode(np.frombuffer(compressed_image, np.uint8), cv2.IMREAD_COLOR)
                 image_list.append(image)
             image_dict[cam_name] = image_list
 
@@ -58,14 +61,19 @@ def main(args):
     task_name   = args['task_name']
     dataset_name = f'episode_{episode_idx}'
 
-    qpos, qvel, effort, action, base_action, image_dict = load_hdf5(os.path.join(dataset_dir, task_name), dataset_name)
+    if args['hdf5_dir'] is not None:
+        hdf5_dir = args['hdf5_dir']
+    else:
+        hdf5_dir = os.path.join(dataset_dir, task_name)
+
+    qpos, qvel, effort, action, base_action, image_dict = load_hdf5(hdf5_dir, dataset_name)
     
     print('hdf5 loaded!!')
     
-    save_videos(image_dict, action, DT,  video_path=os.path.join(dataset_dir, dataset_name + '_video.mp4'))
+    save_videos(image_dict, action, DT,  video_path=os.path.join(hdf5_dir, dataset_name + '_video.mp4'))
 
-    visualize_joints(qpos, action, plot_path=os.path.join(dataset_dir, dataset_name + '_qpos.png'))
-    visualize_base(base_action, plot_path=os.path.join(dataset_dir, dataset_name + '_base_action.png'))
+    visualize_joints(qpos, action, plot_path=os.path.join(hdf5_dir, dataset_name + '_qpos.png'))
+    visualize_base(base_action, plot_path=os.path.join(hdf5_dir, dataset_name + '_base_action.png'))
 
 def save_videos(video, actions, dt, video_path=None):
     cam_names = list(video.keys())
@@ -152,7 +160,8 @@ def visualize_base(readings, plot_path=None):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset_dir', action='store', type=str, help='Dataset dir.', required=True)
+    parser.add_argument('--hdf5_dir', action='store', type=str, default=None, help='Dataset dir storing hdf5 files.', required=False)
+    parser.add_argument('--dataset_dir', action='store', type=str, help='Dataset dir.', required=False)
     parser.add_argument('--task_name', action='store', type=str, help='Task name.',
                         default="aloha_mobile_dummy", required=False)
     parser.add_argument('--episode_idx', action='store', type=int, help='Episode index.',default=0, required=False)

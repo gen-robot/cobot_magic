@@ -35,8 +35,8 @@ def load_hdf5(dataset_dir, dataset_name):
         for cam_name in root[f'/observations/images/'].keys():
             image_dict[cam_name] = root[f'/observations/images/{cam_name}'][()]
         
-        if compressed:
-            compress_len = root['/compress_len'][()]
+        # if compressed:
+        #     compress_len = root['/compress_len'][()]
 
     if compressed:
         for cam_id, cam_name in enumerate(image_dict.keys()):
