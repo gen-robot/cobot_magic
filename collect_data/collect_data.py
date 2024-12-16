@@ -10,6 +10,7 @@ import collections
 from collections import deque
 
 import rospy
+from geometry_msgs.msg import PoseStamped
 from sensor_msgs.msg import JointState
 from sensor_msgs.msg import Image
 from nav_msgs.msg import Odometry
@@ -26,6 +27,7 @@ def save_data(args, timesteps, actions, dataset_path):
         '/observations/qpos': [],
         '/observations/qvel': [],
         '/observations/effort': [],
+        '/observations/ee_pose': [],
         '/action': [],
         '/base_action': [],
         # '/base_action_t265': [],
@@ -49,6 +51,7 @@ def save_data(args, timesteps, actions, dataset_path):
         data_dict['/observations/qpos'].append(ts.observation['qpos'])
         data_dict['/observations/qvel'].append(ts.observation['qvel'])
         data_dict['/observations/effort'].append(ts.observation['effort'])
+        data_dict['/observations/ee_pose'].append(ts.observation['ee_pose'])
 
         # 实际发的action
         data_dict['/action'].append(action)
@@ -86,6 +89,7 @@ def save_data(args, timesteps, actions, dataset_path):
         _ = obs.create_dataset('qpos', (data_size, 14))
         _ = obs.create_dataset('qvel', (data_size, 14))
         _ = obs.create_dataset('effort', (data_size, 14))
+        _ = obs.create_dataset('ee_pose', (data_size, 14))
         _ = root.create_dataset('action', (data_size, 14))
         _ = root.create_dataset('base_action', (data_size, 2))
 
@@ -102,6 +106,8 @@ class RosOperator:
         self.puppet_arm_left_deque = None
         self.master_arm_right_deque = None
         self.master_arm_left_deque = None
+        self.puppet_ee_pose_left_deque = None
+        self.puppet_ee_pose_right_deque = None
         self.img_front_deque = None
         self.img_right_deque = None
         self.img_left_deque = None
@@ -126,6 +132,8 @@ class RosOperator:
         self.puppet_arm_left_deque = deque()
         self.puppet_arm_right_deque = deque()
         self.robot_base_deque = deque()
+        self.puppet_ee_pose_left_deque = deque()
+        self.puppet_ee_pose_right_deque = deque()
 
     def get_frame(self):
         if len(self.img_left_deque) == 0 or len(self.img_right_deque) == 0 or len(self.img_front_deque) == 0 or \
@@ -159,6 +167,10 @@ class RosOperator:
             return False
         if self.args.use_robot_base and (len(self.robot_base_deque) == 0 or self.robot_base_deque[-1].header.stamp.to_sec() < frame_time):
             return False
+        if len(self.puppet_ee_pose_left_deque) == 0 or self.puppet_ee_pose_left_deque[-1].header.stamp.to_sec() < frame_time:
+            return False
+        if len(self.puppet_ee_pose_right_deque) == 0 or self.puppet_ee_pose_right_deque[-1].header.stamp.to_sec() < frame_time:
+            return False
 
         while self.img_left_deque[0].header.stamp.to_sec() < frame_time:
             self.img_left_deque.popleft()
@@ -188,6 +200,14 @@ class RosOperator:
         while self.puppet_arm_right_deque[0].header.stamp.to_sec() < frame_time:
             self.puppet_arm_right_deque.popleft()
         puppet_arm_right = self.puppet_arm_right_deque.popleft()
+
+        while self.puppet_ee_pose_left_deque[0].header.stamp.to_sec() < frame_time:
+            self.puppet_ee_pose_left_deque.popleft()
+        puppet_ee_pose_left = self.puppet_ee_pose_left_deque.popleft()
+
+        while self.puppet_ee_pose_right_deque[0].header.stamp.to_sec() < frame_time:
+            self.puppet_ee_pose_right_deque.popleft()
+        puppet_ee_pose_right = self.puppet_ee_pose_right_deque.popleft()
 
         img_left_depth = None
         if self.args.use_depth_image:
@@ -220,7 +240,7 @@ class RosOperator:
             robot_base = self.robot_base_deque.popleft()
 
         return (img_front, img_left, img_right, img_front_depth, img_left_depth, img_right_depth,
-                puppet_arm_left, puppet_arm_right, master_arm_left, master_arm_right, robot_base)
+                puppet_arm_left, puppet_arm_right, master_arm_left, master_arm_right, robot_base, puppet_ee_pose_left, puppet_ee_pose_right)
 
     def img_left_callback(self, msg):
         if len(self.img_left_deque) >= 2000:
@@ -277,6 +297,16 @@ class RosOperator:
             self.robot_base_deque.popleft()
         self.robot_base_deque.append(msg)
 
+    def puppet_ee_pose_left_callback(self, msg):
+        if len(self.puppet_ee_pose_left_deque) >= 2000:
+            self.puppet_ee_pose_left_deque.popleft()
+        self.puppet_ee_pose_left_deque.append(msg)
+
+    def puppet_ee_pose_right_callback(self, msg):
+        if len(self.puppet_ee_pose_right_deque) >= 2000:
+            self.puppet_ee_pose_right_deque.popleft()
+        self.puppet_ee_pose_right_deque.append(msg)
+
     def init_ros(self):
         rospy.init_node('record_episodes', anonymous=True)
         rospy.Subscriber(self.args.img_left_topic, Image, self.img_left_callback, queue_size=1000, tcp_nodelay=True)
@@ -292,6 +322,9 @@ class RosOperator:
         rospy.Subscriber(self.args.puppet_arm_left_topic, JointState, self.puppet_arm_left_callback, queue_size=1000, tcp_nodelay=True)
         rospy.Subscriber(self.args.puppet_arm_right_topic, JointState, self.puppet_arm_right_callback, queue_size=1000, tcp_nodelay=True)
         rospy.Subscriber(self.args.robot_base_topic, Odometry, self.robot_base_callback, queue_size=1000, tcp_nodelay=True)
+
+        rospy.Subscriber(self.args.puppet_ee_pose_left_topic, PoseStamped, self.puppet_ee_pose_left_callback, queue_size=1000, tcp_nodelay=True)
+        rospy.Subscriber(self.args.puppet_ee_pose_right_topic, PoseStamped, self.puppet_ee_pose_right_callback, queue_size=1000, tcp_nodelay=True)
 
     def process(self):
         timesteps = []
@@ -322,7 +355,9 @@ class RosOperator:
             print_flag = True
             count += 1
             (img_front, img_left, img_right, img_front_depth, img_left_depth, img_right_depth,
-             puppet_arm_left, puppet_arm_right, master_arm_left, master_arm_right, robot_base) = result
+             puppet_arm_left, puppet_arm_right, master_arm_left, master_arm_right, robot_base,
+             puppet_ee_pose_left, puppet_ee_pose_right
+             ) = result
             # 2.1 图像信息
             image_dict = dict()
             image_dict[self.args.camera_names[0]] = img_front
@@ -341,6 +376,13 @@ class RosOperator:
             obs['qpos'] = np.concatenate((np.array(puppet_arm_left.position), np.array(puppet_arm_right.position)), axis=0)
             obs['qvel'] = np.concatenate((np.array(puppet_arm_left.velocity), np.array(puppet_arm_right.velocity)), axis=0)
             obs['effort'] = np.concatenate((np.array(puppet_arm_left.effort), np.array(puppet_arm_right.effort)), axis=0)
+            def parse_ee_pose(msg):
+                pos = msg.pose.position
+                ori = msg.pose.orientation
+                pos_vec = [pos.x, pos.y, pos.z]
+                ori_vec = [ori.x, ori.y, ori.z, ori.w]
+                return pos_vec + ori_vec
+            obs['ee_pose'] = np.concatenate((np.array(parse_ee_pose(puppet_ee_pose_left)), np.array(parse_ee_pose(puppet_ee_pose_right))), axis=0)
             if self.args.use_robot_base:
                 obs['base_vel'] = [robot_base.twist.twist.linear.x, robot_base.twist.twist.angular.z]
             else:
@@ -416,6 +458,11 @@ def get_arguments():
     parser.add_argument('--puppet_arm_right_topic', action='store', type=str, help='puppet_arm_right_topic',
                         default='/puppet/joint_right', required=False)
     
+    parser.add_argument('--puppet_ee_pose_left_topic', action='store', type=str, help='puppet_ee_pose_left_topic',
+                        default='/puppet/ee_pose_left', required=False)
+    parser.add_argument('--puppet_ee_pose_right_topic', action='store', type=str, help='puppet_ee_pose_right_topic',
+                        default='/puppet/ee_pose_right', required=False)
+    
     # topic name of robot_base
     parser.add_argument('--robot_base_topic', action='store', type=str, help='robot_base_topic',
                         default='/odom', required=False)
@@ -437,16 +484,17 @@ def main():
     timesteps, actions = ros_operator.process()
     dataset_dir = os.path.join(args.dataset_dir, args.task_name)
     
-    if(len(actions) < args.max_timesteps):
-        print("\033[31m\nSave failure, please record %s timesteps of data.\033[0m\n" %args.max_timesteps)
-        exit(-1)
+    # if(len(actions) < args.max_timesteps):
+    #     print("\033[31m\nSave failure, please record %s timesteps of data.\033[0m\n" %args.max_timesteps)
+    #     exit(-1)
+    print("\033[32m\nSave success, save {} timesteps of data.\033[0m\n".format(len(actions)))
 
     if not os.path.exists(dataset_dir):
         os.makedirs(dataset_dir)
     
     if args.episode_idx < 0:
         # get the latest episode index
-        all_episodes = [d for d in os.listdir(dataset_dir) if d.startwith('episode')]
+        all_episodes = [d for d in os.listdir(dataset_dir) if d.startswith('episode')]
         if len(all_episodes) == 0:
             episode_idx = 0
         else:

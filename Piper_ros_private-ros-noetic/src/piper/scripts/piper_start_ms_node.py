@@ -17,7 +17,7 @@ import argparse
 from piper_sdk import *
 from piper_sdk import C_PiperInterface
 from piper_msgs.msg import PiperStatusMsg, PosCmd
-from geometry_msgs.msg import Pose
+from geometry_msgs.msg import Pose, PoseStamped
 from tf.transformations import quaternion_from_euler  # 用于欧拉角到四元数的转换
 
 def check_ros_master():
@@ -63,7 +63,7 @@ class C_PiperRosNode():
         if(self.mode == 0):
             self.joint_std_pub_master = rospy.Publisher('/master/joint_states', JointState, queue_size=1)
         self.arm_status_pub = rospy.Publisher('/puppet/arm_status', PiperStatusMsg, queue_size=1)
-        self.end_pose_pub = rospy.Publisher('/puppet/end_pose', Pose, queue_size=1)
+        self.end_pose_pub = rospy.Publisher('/puppet/end_pose', PoseStamped, queue_size=1)
         
         self.__enable_flag = False
         # 从臂消息
@@ -180,6 +180,8 @@ class C_PiperRosNode():
     
     def PublishSlaveArmEndPose(self):
         # 末端位姿
+        endpos_msg = PoseStamped()
+        endpos_msg.header.stamp = rospy.Time.now()
         endpos = Pose()
         endpos.position.x = self.piper.ArmEndPose.end_pose.X_axis/1000000
         endpos.position.y = self.piper.ArmEndPose.end_pose.Y_axis/1000000
@@ -192,7 +194,8 @@ class C_PiperRosNode():
         endpos.orientation.y = quaternion[1]
         endpos.orientation.z = quaternion[2]
         endpos.orientation.w = quaternion[3]
-        self.end_pose_pub.publish(endpos)
+        endpos_msg.pose = endpos
+        self.end_pose_pub.publish(endpos_msg)
     
     def PublishSlaveArmJointAndGripper(self):
         # 从臂反馈消息

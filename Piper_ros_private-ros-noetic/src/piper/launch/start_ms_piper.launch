@@ -9,6 +9,7 @@
       <param name="auto_enable" value="$(arg auto_enable)" />
       <remap from="/puppet/joint_states" to="/puppet/joint_left" />
       <remap from="/master/joint_states" to="/master/joint_left" />
+      <remap from="/puppet/end_pose" to="/puppet/ee_pose_left" />
     </node>
 
   <!-- 启动右侧机械臂节点 -->
@@ -18,6 +19,7 @@
       <param name="auto_enable" value="$(arg auto_enable)" />
       <remap from="/puppet/joint_states" to="/puppet/joint_right" />
       <remap from="/master/joint_states" to="/master/joint_right" />
+      <remap from="/puppet/end_pose" to="/puppet/ee_pose_right" />
     </node>
 </launch>
 
