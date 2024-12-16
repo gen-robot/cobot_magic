@@ -5,7 +5,6 @@ import numpy as np
 import h5py
 import argparse
 import dm_env
-import signal
 
 import collections
 from collections import deque
@@ -55,18 +54,12 @@ def save_data(args, timesteps, actions, dataset_path):
         data_dict['/action'].append(action)
         data_dict['/base_action'].append(ts.observation['base_vel'])
 
-        def compress_img(img):
-            encoded_image = cv2.imencode('.jpeg', img)[1]
-            return np.frombuffer(encoded_image.tobytes(), dtype='uint8')
-
         # 相机数据
         # data_dict['/base_action_t265'].append(ts.observation['base_vel_t265'])
         for cam_name in args.camera_names:
-            data_dict[f'/observations/images/{cam_name}'].append(
-                compress_img(ts.observation['images'][cam_name]))
+            data_dict[f'/observations/images/{cam_name}'].append(ts.observation['images'][cam_name])
             if args.use_depth_image:
-                data_dict[f'/observations/images_depth/{cam_name}'].append(
-                    compress_img(ts.observation['images_depth'][cam_name]))
+                data_dict[f'/observations/images_depth/{cam_name}'].append(ts.observation['images_depth'][cam_name])
 
     t0 = time.time()
     with h5py.File(dataset_path + '.hdf5', 'w', rdcc_nbytes=1024**2*2) as root:
@@ -75,20 +68,20 @@ def save_data(args, timesteps, actions, dataset_path):
         # 2 图像是否压缩
         #
         root.attrs['sim'] = False
-        root.attrs['compress'] = True
+        root.attrs['compress'] = False
 
         # 创建一个新的组observations，观测状态组
         # 图像组
         obs = root.create_group('observations')
         image = obs.create_group('images')
         for cam_name in args.camera_names:
-            _ = image.create_dataset(
-                cam_name, (data_size,), dtype=h5py.vlen_dtype(np.dtype('uint8')))
+            _ = image.create_dataset(cam_name, (data_size, 480, 640, 3), dtype='uint8',
+                                         chunks=(1, 480, 640, 3), )
         if args.use_depth_image:
             image_depth = obs.create_group('images_depth')
             for cam_name in args.camera_names:
-                _ = image_depth.create_dataset(
-                    cam_name, (data_size,), dtype=h5py.vlen_dtype(np.dtype('uint8')))
+                _ = image_depth.create_dataset(cam_name, (data_size, 480, 640), dtype='uint16',
+                                             chunks=(1, 480, 640), )
 
         _ = obs.create_dataset('qpos', (data_size, 14))
         _ = obs.create_dataset('qvel', (data_size, 14))
@@ -300,9 +293,9 @@ class RosOperator:
         rospy.Subscriber(self.args.puppet_arm_right_topic, JointState, self.puppet_arm_right_callback, queue_size=1000, tcp_nodelay=True)
         rospy.Subscriber(self.args.robot_base_topic, Odometry, self.robot_base_callback, queue_size=1000, tcp_nodelay=True)
 
-    def process(self, timesteps, actions):
-        # timesteps = []
-        # actions = []
+    def process(self):
+        timesteps = []
+        actions = []
         # 图像数据
         image = np.random.randint(0, 255, size=(480, 640, 3), dtype=np.uint8)
         image_dict = dict()
@@ -391,10 +384,9 @@ def get_arguments():
     parser.add_argument('--task_name', action='store', type=str, help='Task name.',
                         default="aloha_mobile_dummy", required=False)
     parser.add_argument('--episode_idx', action='store', type=int, help='Episode index.',
-                        default=0, required=False)
-    
+                        default=-1, required=False)
     parser.add_argument('--max_timesteps', action='store', type=int, help='Max_timesteps.',
-                        default=500, required=False)
+                        default=2000, required=False)
 
     parser.add_argument('--camera_names', action='store', type=str, help='camera_names',
                         default=['cam_high', 'cam_left_wrist', 'cam_right_wrist'], required=False)
@@ -427,15 +419,13 @@ def get_arguments():
     # topic name of robot_base
     parser.add_argument('--robot_base_topic', action='store', type=str, help='robot_base_topic',
                         default='/odom', required=False)
-    
     parser.add_argument('--use_robot_base', action='store', type=bool, help='use_robot_base',
                         default=False, required=False)
     # collect depth image
     parser.add_argument('--use_depth_image', action='store', type=bool, help='use_depth_image',
                         default=False, required=False)
-    
     parser.add_argument('--frame_rate', action='store', type=int, help='frame_rate',
-                        default=25, required=False)
+                        default=30, required=False)
     
     args = parser.parse_args()
     return args
@@ -444,22 +434,28 @@ def get_arguments():
 def main():
     args = get_arguments()
     ros_operator = RosOperator(args)
+    timesteps, actions = ros_operator.process()
     dataset_dir = os.path.join(args.dataset_dir, args.task_name)
-    if not os.path.exists(dataset_dir):
-        os.makedirs(dataset_dir)
-    dataset_path = os.path.join(dataset_dir, "episode_" + str(args.episode_idx))
     
-    timesteps, actions = [], []
-    def signal_handler(sig, frame):
-        save_data(args, timesteps, actions, dataset_path)
-        exit(-1)
-    signal.signal(signal.SIGINT, signal_handler)
-    timesteps, actions = ros_operator.process(timesteps, actions)
-
     if(len(actions) < args.max_timesteps):
         print("\033[31m\nSave failure, please record %s timesteps of data.\033[0m\n" %args.max_timesteps)
         exit(-1)
 
+    if not os.path.exists(dataset_dir):
+        os.makedirs(dataset_dir)
+    
+    if args.episode_idx < 0:
+        # get the latest episode index
+        all_episodes = [d for d in os.listdir(dataset_dir) if d.startwith('episode')]
+        if len(all_episodes) == 0:
+            episode_idx = 0
+        else:
+            all_episodes = sorted(all_episodes, key=lambda x: int(x.split('_')[-1].split('.')[0]))
+            episode_idx = int(all_episodes[-1].split('_')[-1].split('.')[0]) + 1
+    else:
+        episode_idx = args.episode_idx
+        
+    dataset_path = os.path.join(dataset_dir, "episode_" + str(episode_idx))
     save_data(args, timesteps, actions, dataset_path)
 
 
