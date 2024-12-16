@@ -384,10 +384,9 @@ def get_arguments():
     parser.add_argument('--task_name', action='store', type=str, help='Task name.',
                         default="aloha_mobile_dummy", required=False)
     parser.add_argument('--episode_idx', action='store', type=int, help='Episode index.',
-                        default=0, required=False)
-    
+                        default=-1, required=False)
     parser.add_argument('--max_timesteps', action='store', type=int, help='Max_timesteps.',
-                        default=500, required=False)
+                        default=2000, required=False)
 
     parser.add_argument('--camera_names', action='store', type=str, help='camera_names',
                         default=['cam_high', 'cam_left_wrist', 'cam_right_wrist'], required=False)
@@ -420,13 +419,11 @@ def get_arguments():
     # topic name of robot_base
     parser.add_argument('--robot_base_topic', action='store', type=str, help='robot_base_topic',
                         default='/odom', required=False)
-    
     parser.add_argument('--use_robot_base', action='store', type=bool, help='use_robot_base',
                         default=False, required=False)
     # collect depth image
     parser.add_argument('--use_depth_image', action='store', type=bool, help='use_depth_image',
                         default=False, required=False)
-    
     parser.add_argument('--frame_rate', action='store', type=int, help='frame_rate',
                         default=30, required=False)
     
@@ -446,7 +443,19 @@ def main():
 
     if not os.path.exists(dataset_dir):
         os.makedirs(dataset_dir)
-    dataset_path = os.path.join(dataset_dir, "episode_" + str(args.episode_idx))
+    
+    if args.episode_idx < 0:
+        # get the latest episode index
+        all_episodes = [d for d in os.listdir(dataset_dir) if d.startwith('episode')]
+        if len(all_episodes) == 0:
+            episode_idx = 0
+        else:
+            all_episodes = sorted(all_episodes, key=lambda x: int(x.split('_')[-1].split('.')[0]))
+            episode_idx = int(all_episodes[-1].split('_')[-1].split('.')[0]) + 1
+    else:
+        episode_idx = args.episode_idx
+        
+    dataset_path = os.path.join(dataset_dir, "episode_" + str(episode_idx))
     save_data(args, timesteps, actions, dataset_path)
 
 
