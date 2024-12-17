@@ -138,6 +138,12 @@ class RosOperator:
     def get_frame(self):
         if len(self.img_left_deque) == 0 or len(self.img_right_deque) == 0 or len(self.img_front_deque) == 0 or \
                 (self.args.use_depth_image and (len(self.img_left_depth_deque) == 0 or len(self.img_right_depth_deque) == 0 or len(self.img_front_depth_deque) == 0)):
+            checklist = ["img_left_deque", "img_right_deque", "img_front_deque"]
+            if self.args.use_depth_image:
+                checklist += ["img_left_depth_deque", "img_right_depth_deque", "img_front_depth_deque"]
+            for item in checklist:
+                if getattr(self, item) == 0:
+                    print("[Warning] Deque %s is empty" % item)
             return False
         if self.args.use_depth_image:
             frame_time = min([self.img_left_deque[-1].header.stamp.to_sec(), self.img_right_deque[-1].header.stamp.to_sec(), self.img_front_deque[-1].header.stamp.to_sec(),
@@ -481,16 +487,18 @@ def get_arguments():
 def main():
     args = get_arguments()
     ros_operator = RosOperator(args)
-    timesteps, actions = ros_operator.process()
     dataset_dir = os.path.join(args.dataset_dir, args.task_name)
-    
-    # if(len(actions) < args.max_timesteps):
-    #     print("\033[31m\nSave failure, please record %s timesteps of data.\033[0m\n" %args.max_timesteps)
-    #     exit(-1)
-    print("\033[32m\nSave success, save {} timesteps of data.\033[0m\n".format(len(actions)))
-
     if not os.path.exists(dataset_dir):
         os.makedirs(dataset_dir)
+    
+    timesteps, actions = ros_operator.process()
+
+    if len(actions) < 200:
+        print("[Error] Save failure (#step < 200), please check your cameras and arms and try again.")
+        exit(-1)
+    
+    print("\033[32m\nSave success, save {} timesteps of data.\033[0m\n".format(len(actions)))
+
     
     if args.episode_idx < 0:
         # get the latest episode index
