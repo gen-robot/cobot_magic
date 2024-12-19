@@ -5,6 +5,7 @@ import numpy as np
 import h5py
 import argparse
 import dm_env
+import signal
 
 import collections
 from collections import deque
@@ -57,12 +58,18 @@ def save_data(args, timesteps, actions, dataset_path):
         data_dict['/action'].append(action)
         data_dict['/base_action'].append(ts.observation['base_vel'])
 
+        def compress_img(img):
+            encoded_image = cv2.imencode('.jpeg', img)[1]
+            return np.frombuffer(encoded_image.tobytes(), dtype='uint8')
+
         # 相机数据
         # data_dict['/base_action_t265'].append(ts.observation['base_vel_t265'])
         for cam_name in args.camera_names:
-            data_dict[f'/observations/images/{cam_name}'].append(ts.observation['images'][cam_name])
+            data_dict[f'/observations/images/{cam_name}'].append(
+                compress_img(ts.observation['images'][cam_name]))
             if args.use_depth_image:
-                data_dict[f'/observations/images_depth/{cam_name}'].append(ts.observation['images_depth'][cam_name])
+                data_dict[f'/observations/images_depth/{cam_name}'].append(
+                    compress_img(ts.observation['images_depth'][cam_name]))
 
     t0 = time.time()
     with h5py.File(dataset_path + '.hdf5', 'w', rdcc_nbytes=1024**2*2) as root:
@@ -71,20 +78,20 @@ def save_data(args, timesteps, actions, dataset_path):
         # 2 图像是否压缩
         #
         root.attrs['sim'] = False
-        root.attrs['compress'] = False
+        root.attrs['compress'] = True
 
         # 创建一个新的组observations，观测状态组
         # 图像组
         obs = root.create_group('observations')
         image = obs.create_group('images')
         for cam_name in args.camera_names:
-            _ = image.create_dataset(cam_name, (data_size, 480, 640, 3), dtype='uint8',
-                                         chunks=(1, 480, 640, 3), )
+            _ = image.create_dataset(
+                cam_name, (data_size,), dtype=h5py.vlen_dtype(np.dtype('uint8')))
         if args.use_depth_image:
             image_depth = obs.create_group('images_depth')
             for cam_name in args.camera_names:
-                _ = image_depth.create_dataset(cam_name, (data_size, 480, 640), dtype='uint16',
-                                             chunks=(1, 480, 640), )
+                _ = image_depth.create_dataset(
+                    cam_name, (data_size,), dtype=h5py.vlen_dtype(np.dtype('uint8')))
 
         _ = obs.create_dataset('qpos', (data_size, 14))
         _ = obs.create_dataset('qvel', (data_size, 14))
@@ -246,7 +253,8 @@ class RosOperator:
             robot_base = self.robot_base_deque.popleft()
 
         return (img_front, img_left, img_right, img_front_depth, img_left_depth, img_right_depth,
-                puppet_arm_left, puppet_arm_right, master_arm_left, master_arm_right, robot_base, puppet_ee_pose_left, puppet_ee_pose_right)
+                puppet_arm_left, puppet_arm_right, master_arm_left, master_arm_right, robot_base, 
+                puppet_ee_pose_left, puppet_ee_pose_right)
 
     def img_left_callback(self, msg):
         if len(self.img_left_deque) >= 2000:
@@ -478,7 +486,7 @@ def get_arguments():
     parser.add_argument('--use_depth_image', action='store', type=bool, help='use_depth_image',
                         default=False, required=False)
     parser.add_argument('--frame_rate', action='store', type=int, help='frame_rate',
-                        default=30, required=False)
+                        default=25, required=False)
     
     args = parser.parse_args()
     return args
@@ -499,7 +507,6 @@ def main():
     
     print("\033[32m\nSave success, save {} timesteps of data.\033[0m\n".format(len(actions)))
 
-    
     if args.episode_idx < 0:
         # get the latest episode index
         all_episodes = [d for d in os.listdir(dataset_dir) if d.startswith('episode')]
