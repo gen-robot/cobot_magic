@@ -509,7 +509,7 @@ def main():
 
     if args.episode_idx < 0:
         # get the latest episode index
-        all_episodes = [d for d in os.listdir(dataset_dir) if d.startswith('episode')]
+        all_episodes = [d for d in os.listdir(dataset_dir) if d.endswith('hdf5')]
         if len(all_episodes) == 0:
             episode_idx = 0
         else:

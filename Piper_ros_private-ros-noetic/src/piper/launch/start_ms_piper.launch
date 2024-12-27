@@ -11,6 +11,7 @@
       <remap from="/master/joint_states" to="/master/joint_left" />
       <remap from="/puppet/end_pose" to="/puppet/ee_pose_left" />
       <remap from="pos_cmd" to="ee_pose_cmd_left" />
+      <remap from="/puppet/arm_status" to="/puppet/arm_status_left" />
     </node>
 
   <!-- 启动右侧机械臂节点 -->
@@ -22,6 +23,7 @@
       <remap from="/master/joint_states" to="/master/joint_right" />
       <remap from="/puppet/end_pose" to="/puppet/ee_pose_right" />
       <remap from="pos_cmd" to="ee_pose_cmd_right" />
+      <remap from="/puppet/arm_status" to="/puppet/arm_status_right" />
     </node>
 </launch>
 

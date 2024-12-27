@@ -269,23 +269,25 @@ class C_PiperRosNode():
         rospy.loginfo("gripper: %f", pos_data.gripper)
         rospy.loginfo("mode1: %d", pos_data.mode1)
         rospy.loginfo("mode2: %d", pos_data.mode2)
-        x = round(pos_data.x*1000)
-        y = round(pos_data.y*1000)
-        z = round(pos_data.z*1000)
-        rx = round(pos_data.roll*1000)
+        x = round(pos_data.x*1000000) # x in m
+        y = round(pos_data.y*1000000)
+        z = round(pos_data.z*1000000)
+        rx = round(pos_data.roll*1000) # roll in degree
         ry = round(pos_data.pitch*1000)
         rz = round(pos_data.yaw*1000)
+        gripper = round(pos_data.gripper*1000*1000)
+        if(gripper>80000): gripper = 80000
+        if(gripper<0): gripper = 0
+        
         if(self.GetEnableFlag()):
-            self.piper.MotionCtrl_1(0x00, 0x00, 0x00)
-            self.piper.MotionCtrl_2(0x01, 0x02, 50)
-            self.piper.EndPoseCtrl(x, y, z, 
-                                    rx, ry, rz)
-            gripper = round(pos_data.gripper*1000*1000)
-            if(pos_data.gripper>80000): gripper = 80000
-            if(pos_data.gripper<0): gripper = 0
-            if(self.girpper_exist):
-                self.piper.GripperCtrl(abs(gripper), 1000, 0x01, 0)
-            self.piper.MotionCtrl_2(0x01, 0x00, 50)
+            rospy.loginfo("Controlling...")
+            # self.piper.MotionCtrl_1(0x00, 0x00, 0x00)
+            self.piper.MotionCtrl_2(0x01, 0x00, 50, 0x00)
+            self.piper.EndPoseCtrl(x, y, z, rx, ry, rz)
+            # if(self.girpper_exist):
+            #     self.piper.GripperCtrl(abs(gripper), 1000, 0x01, 0)
+            self.piper.MotionCtrl_2(0x01, 0x00, 50, 0x00)
+    
     
     def joint_callback(self, joint_data):
         """机械臂关节角回调函数
@@ -318,7 +320,6 @@ class C_PiperRosNode():
                                     joint_3, joint_4, joint_5)
             self.piper.GripperCtrl(abs(joint_6), 1000, 0x01, 0)
             self.piper.MotionCtrl_2(0x01, 0x01, 100)
-            pass
     
     def enable_callback(self, enable_flag:Bool):
         """机械臂使能回调函数
