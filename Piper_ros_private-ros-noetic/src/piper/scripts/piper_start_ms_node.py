@@ -10,7 +10,7 @@ from typing import (
 import rospy
 import rosnode
 from sensor_msgs.msg import JointState
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, Header
 import time
 import threading
 import argparse
@@ -19,6 +19,7 @@ from piper_sdk import C_PiperInterface
 from piper_msgs.msg import PiperStatusMsg, PosCmd
 from geometry_msgs.msg import Pose, PoseStamped
 from tf.transformations import quaternion_from_euler  # 用于欧拉角到四元数的转换
+from piper_pinocchio import Arm_IK
 
 def check_ros_master():
     try:
@@ -80,17 +81,22 @@ class C_PiperRosNode():
         self.joint_state_master.effort = [0.0] * 7
 
         self.piper = C_PiperInterface(can_name=self.can_port)
-        self.piper.ConnectPort()
+        self.piper.ConnectPort()            
+        self.arm_ik = Arm_IK()
+        
         # 模式为1的时候，订阅控制消息
         if(self.mode == 1):
+            sub_pin_pos_th = threading.Thread(target=self.SubPinPosThread)
             sub_pos_th = threading.Thread(target=self.SubPosThread)
             sub_joint_th = threading.Thread(target=self.SubJointThread)
             sub_enable_th = threading.Thread(target=self.SubEnableThread)
             
+            sub_pin_pos_th.daemon = True
             sub_pos_th.daemon = True
             sub_joint_th.daemon = True
             sub_enable_th.daemon = True
             
+            sub_pin_pos_th.start()
             sub_pos_th.start()
             sub_joint_th.start()
             sub_enable_th.start()
@@ -183,7 +189,8 @@ class C_PiperRosNode():
         endpos_msg = PoseStamped()
         endpos_msg.header.stamp = rospy.Time.now()
         endpos = Pose()
-        endpos.position.x = self.piper.ArmEndPose.end_pose.X_axis/1000000
+        # use piper.GetArmEndPoseMsgs() X,Y,Z单位0.001mm, RX,RY,RZ单位0.001度
+        endpos.position.x = self.piper.ArmEndPose.end_pose.X_axis/1000000 # 经测试endpos.position.x 单位为 m
         endpos.position.y = self.piper.ArmEndPose.end_pose.Y_axis/1000000
         endpos.position.z = self.piper.ArmEndPose.end_pose.Z_axis/1000000
         roll = self.piper.ArmEndPose.end_pose.RX_axis/1000
@@ -233,6 +240,13 @@ class C_PiperRosNode():
         self.joint_state_master.position = [joint_0,joint_1, joint_2, joint_3, joint_4, joint_5,joint_6]  # Example values
         self.joint_std_pub_master.publish(self.joint_state_master)
     
+    def SubPinPosThread(self):
+        """ 创建订阅者,监听PinPosCmd类型的消息
+        
+        """
+        rospy.Subscriber('pin_pos_cmd', PosCmd, self.pin_pos_callback)
+        rospy.spin()
+    
     def SubPosThread(self):
         """机械臂末端位姿订阅
         
@@ -253,6 +267,30 @@ class C_PiperRosNode():
         """
         rospy.Subscriber('/enable_flag', Bool, self.enable_callback)
         rospy.spin()
+
+    def pin_pos_callback(self, msg):
+        # 获取PinPosCmd类型消息中的数据
+        x = msg.x
+        y = msg.y
+        z = msg.z
+        roll = msg.roll
+        pitch = msg.pitch
+        yaw = msg.yaw
+        ret, qpos = self.arm_ik.get_ik_solution(x, y, z, roll, pitch, yaw)
+        if ret:
+            gripper = 0
+            joint_states_msgs = JointState()
+            joint_states_msgs.header = Header()
+            joint_states_msgs.header.stamp = rospy.Time.now()
+            joint_states_msgs.name = [f'joint{i+1}' for i in range(7)]
+            joint_states_msgs.position.append(qpos[0])
+            joint_states_msgs.position.append(qpos[1])
+            joint_states_msgs.position.append(qpos[2])
+            joint_states_msgs.position.append(qpos[3])
+            joint_states_msgs.position.append(qpos[4])
+            joint_states_msgs.position.append(qpos[5])
+            joint_states_msgs.position.append(gripper)
+            self.joint_callback(joint_states_msgs)
 
     def pos_callback(self, pos_data):
         """机械臂末端位姿订阅回调函数
