@@ -189,7 +189,8 @@ class C_PiperRosNode():
         roll = self.piper.ArmEndPose.end_pose.RX_axis/1000
         pitch = self.piper.ArmEndPose.end_pose.RY_axis/1000
         yaw = self.piper.ArmEndPose.end_pose.RZ_axis/1000
-        quaternion = quaternion_from_euler(roll, pitch, yaw)
+        import numpy as np
+        quaternion = quaternion_from_euler(roll/180.0*np.pi, pitch/180.0*np.pi, yaw/180.0*np.pi, "sxyz")
         endpos.orientation.x = quaternion[0]
         endpos.orientation.y = quaternion[1]
         endpos.orientation.z = quaternion[2]
