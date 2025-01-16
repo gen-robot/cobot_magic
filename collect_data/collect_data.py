@@ -34,11 +34,15 @@ def save_data(args, timesteps, actions, dataset_path):
         # '/base_action_t265': [],
     }
 
+    all_max_length = {}
+
     # 相机字典  观察的图像
     for cam_name in args.camera_names:
         data_dict[f'/observations/images/{cam_name}'] = []
+        all_max_length[f'/observations/images/{cam_name}'] = 0
         if args.use_depth_image:
             data_dict[f'/observations/images_depth/{cam_name}'] = []
+            all_max_length[f'/observations/images_depth/{cam_name}'] = 0
 
     # len(action): max_timesteps, len(time_steps): max_timesteps + 1
     # 动作长度 遍历动作
@@ -60,16 +64,25 @@ def save_data(args, timesteps, actions, dataset_path):
 
         def compress_img(img):
             encoded_image = cv2.imencode('.jpeg', img)[1]
-            return np.frombuffer(encoded_image.tobytes(), dtype='uint8')
+            return encoded_image.tobytes()
 
         # 相机数据
         # data_dict['/base_action_t265'].append(ts.observation['base_vel_t265'])
         for cam_name in args.camera_names:
-            data_dict[f'/observations/images/{cam_name}'].append(
-                compress_img(ts.observation['images'][cam_name]))
+            img_bytes = compress_img(ts.observation['images'][cam_name])
+            data_dict[f'/observations/images/{cam_name}'].append(img_bytes)
+            all_max_length[f'/observations/images/{cam_name}'] = max(
+                all_max_length[f'/observations/images/{cam_name}'], 
+                len(img_bytes))
+            # data_dict[f'/observations/images/{cam_name}'].append(
+            #     compress_img(ts.observation['images'][cam_name]))
             if args.use_depth_image:
-                data_dict[f'/observations/images_depth/{cam_name}'].append(
-                    compress_img(ts.observation['images_depth'][cam_name]))
+                img_bytes = compress_img(ts.observation['images_depth'][cam_name])
+                data_dict[f'/observations/images_depth/{cam_name}'].append(img_bytes)
+                    # compress_img(ts.observation['images_depth'][cam_name]))
+                all_max_length[f'/observations/images_depth/{cam_name}'] = max(
+                    all_max_length[f'/observations/images_depth/{cam_name}'],
+                    len(img_bytes))
 
     t0 = time.time()
     with h5py.File(dataset_path + '.hdf5', 'w', rdcc_nbytes=1024**2*2) as root:
@@ -85,13 +98,15 @@ def save_data(args, timesteps, actions, dataset_path):
         obs = root.create_group('observations')
         image = obs.create_group('images')
         for cam_name in args.camera_names:
-            _ = image.create_dataset(
-                cam_name, (data_size,), dtype=h5py.vlen_dtype(np.dtype('uint8')))
+            _max_length = all_max_length[f'/observations/images/{cam_name}']
+            fixed_length_dtype = f'|S{_max_length}'
+            _ = image.create_dataset(cam_name, (data_size,), dtype=fixed_length_dtype)
         if args.use_depth_image:
             image_depth = obs.create_group('images_depth')
             for cam_name in args.camera_names:
-                _ = image_depth.create_dataset(
-                    cam_name, (data_size,), dtype=h5py.vlen_dtype(np.dtype('uint8')))
+                _max_length = all_max_length[f'/observations/images_depth/{cam_name}']
+                fixed_length_dtype = f'|S{_max_length}'
+                _ = image_depth.create_dataset(cam_name, (data_size,), dtype=fixed_length_dtype)
 
         _ = obs.create_dataset('qpos', (data_size, 14))
         _ = obs.create_dataset('qvel', (data_size, 14))
